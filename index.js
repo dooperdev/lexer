@@ -15,156 +15,141 @@ const keywords = ["var", "print", "if", "else", "while", "function", "return"];
 const operators = ["+", "-", "*", "/", "=", "==", "!=", ">", "<", ">=", "<="];
 const separators = [";", "(", ")", "{", "}"];
 
-// Helpers
-function isLetter(c) {
-  return /[a-zA-Z]/.test(c);
+// Helper functions
+function isLetter(char) {
+  return /[a-zA-Z]/.test(char);
 }
-function isDigit(c) {
-  return /[0-9]/.test(c);
+function isDigit(char) {
+  return /[0-9]/.test(char);
 }
-function isWhitespace(c) {
-  return /\s/.test(c);
+function isWhitespace(char) {
+  return /\s/.test(char);
 }
 
-// DFA states
-const State = {
-  START: "START",
-  IDENTIFIER: "IDENTIFIER",
-  NUMBER: "NUMBER",
-  STRING: "STRING",
-  OPERATOR: "OPERATOR",
-  SEPARATOR: "SEPARATOR",
-  COMMENT: "COMMENT",
-  UNKNOWN: "UNKNOWN",
-};
-
-// Lexer function using DFA and state tracking
+// Lexer function
 function lexer(code) {
   const tokens = [];
-  const states = []; // to track DFA state per character
   let pos = 0;
-  let state = State.START;
-  let buffer = "";
-  let stringQuote = null;
 
-  const current = () => code[pos] || null;
-  const nextChar = () => code[pos + 1] || null;
-  const advance = (n = 1) => (pos += n);
-
-  const addToken = (type, value) => tokens.push({ type, value });
-
-  while (current() !== null) {
-    const c = current();
-
-    // record current DFA state
-    states.push({ char: c, state });
-
-    switch (state) {
-      case State.START:
-        if (isWhitespace(c)) {
-          advance();
-        } else if (isLetter(c) || c === "_") {
-          buffer = c;
-          state = State.IDENTIFIER;
-          advance();
-        } else if (isDigit(c)) {
-          buffer = c;
-          state = State.NUMBER;
-          advance();
-        } else if (c === '"' || c === "'") {
-          buffer = c;
-          stringQuote = c;
-          state = State.STRING;
-          advance();
-        } else if (c === "/" && (nextChar() === "/" || nextChar() === "*")) {
-          buffer = c;
-          state = State.COMMENT;
-          advance();
-        } else if (operators.includes(c + nextChar())) {
-          addToken(TokenType.Operator, c + nextChar());
-          advance(2);
-        } else if (operators.includes(c)) {
-          addToken(TokenType.Operator, c);
-          advance();
-        } else if (separators.includes(c)) {
-          addToken(TokenType.Separator, c);
-          advance();
-        } else {
-          addToken(TokenType.Unknown, c);
-          advance();
-        }
-        break;
-
-      case State.IDENTIFIER:
-        if (isLetter(c) || isDigit(c) || c === "_") {
-          buffer += c;
-          advance();
-        } else {
-          addToken(
-            keywords.includes(buffer)
-              ? TokenType.Keyword
-              : TokenType.Identifier,
-            buffer
-          );
-          buffer = "";
-          state = State.START;
-        }
-        break;
-
-      case State.NUMBER:
-        if (isDigit(c) || c === ".") {
-          buffer += c;
-          advance();
-        } else {
-          addToken(TokenType.Number, buffer);
-          buffer = "";
-          state = State.START;
-        }
-        break;
-
-      case State.STRING:
-        buffer += c;
-        advance();
-        if (c === stringQuote) {
-          addToken(TokenType.String, buffer);
-          buffer = "";
-          stringQuote = null;
-          state = State.START;
-        }
-        break;
-
-      case State.COMMENT:
-        if ((buffer === "/" && current() === "/") || buffer.startsWith("//")) {
-          while (current() && current() !== "\n") {
-            buffer += current();
-            advance();
-          }
-        } else if (buffer === "/" && current() === "*") {
-          buffer += "*";
-          advance();
-          while (current() && !(current() === "*" && nextChar() === "/")) {
-            buffer += current();
-            advance();
-          }
-          buffer += "*/";
-          advance(2);
-        }
-        addToken(TokenType.Comment, buffer);
-        buffer = "";
-        state = State.START;
-        break;
-    }
+  function current() {
+    return code[pos] || null;
+  }
+  function next() {
+    return code[pos + 1] || null;
+  }
+  function advance(n = 1) {
+    pos += n;
   }
 
-  // Final buffer check
-  if (state === State.IDENTIFIER)
-    addToken(
-      keywords.includes(buffer) ? TokenType.Keyword : TokenType.Identifier,
-      buffer
-    );
-  if (state === State.NUMBER) addToken(TokenType.Number, buffer);
+  function readNumber() {
+    let num = "";
+    while (isDigit(current()) || current() === ".") {
+      num += current();
+      advance();
+    }
+    return { type: TokenType.Number, value: num };
+  }
 
-  return { tokens, states };
+  function readIdentifier() {
+    let id = "";
+    while (isLetter(current()) || isDigit(current()) || current() === "_") {
+      id += current();
+      advance();
+    }
+    if (keywords.includes(id)) return { type: TokenType.Keyword, value: id };
+    return { type: TokenType.Identifier, value: id };
+  }
+
+  function readString() {
+    const quoteType = current(); // " or '
+    let str = quoteType;
+    advance();
+    while (current() && current() !== quoteType) {
+      str += current();
+      advance();
+    }
+    str += current(); // closing quote
+    advance();
+    return { type: TokenType.String, value: str };
+  }
+
+  function readComment() {
+    if (current() === "/" && next() === "/") {
+      let comment = "";
+      while (current() && current() !== "\n") {
+        comment += current();
+        advance();
+      }
+      return { type: TokenType.Comment, value: comment };
+    } else if (current() === "/" && next() === "*") {
+      let comment = "";
+      advance(2);
+      while (current() && !(current() === "*" && next() === "/")) {
+        comment += current();
+        advance();
+      }
+      advance(2); // skip closing */
+      return { type: TokenType.Comment, value: comment };
+    }
+    return null;
+  }
+
+  while (current() !== null) {
+    if (isWhitespace(current())) {
+      advance();
+      continue;
+    }
+
+    // Comments
+    if (current() === "/" && (next() === "/" || next() === "*")) {
+      tokens.push(readComment());
+      continue;
+    }
+
+    // Strings
+    if (current() === '"' || current() === "'") {
+      tokens.push(readString());
+      continue;
+    }
+
+    // Numbers
+    if (isDigit(current())) {
+      tokens.push(readNumber());
+      continue;
+    }
+
+    // Identifiers/Keywords
+    if (isLetter(current()) || current() === "_") {
+      tokens.push(readIdentifier());
+      continue;
+    }
+
+    // Operators (check two-character operators first)
+    let twoCharOp = current() + next();
+    if (operators.includes(twoCharOp)) {
+      tokens.push({ type: TokenType.Operator, value: twoCharOp });
+      advance(2);
+      continue;
+    }
+    if (operators.includes(current())) {
+      tokens.push({ type: TokenType.Operator, value: current() });
+      advance();
+      continue;
+    }
+
+    // Separators
+    if (separators.includes(current())) {
+      tokens.push({ type: TokenType.Separator, value: current() });
+      advance();
+      continue;
+    }
+
+    // Unknown
+    tokens.push({ type: TokenType.Unknown, value: current() });
+    advance();
+  }
+
+  return tokens;
 }
 
 // Display tokens in table
@@ -173,40 +158,19 @@ function displayTokens(tokens) {
   tbody.innerHTML = "";
   tokens.forEach((t) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${t.type}</td><td>${t.value}</td>`;
+    const tdType = document.createElement("td");
+    tdType.textContent = t.type;
+    const tdValue = document.createElement("td");
+    tdValue.textContent = t.value;
+    tr.appendChild(tdType);
+    tr.appendChild(tdValue);
     tbody.appendChild(tr);
   });
-}
-
-// Display DFA states
-function displayStates(states) {
-  const existingTable = document.getElementById("dfaTable");
-  if (existingTable) existingTable.remove();
-
-  const table = document.createElement("table");
-  table.id = "dfaTable";
-  table.innerHTML = `
-    <thead>
-      <tr><th>Character</th><th>DFA State</th></tr>
-    </thead>
-    <tbody>
-      ${states
-        .map(
-          (s) =>
-            `<tr><td>${s.char === "\n" ? "\\n" : s.char}</td><td>${
-              s.state
-            }</td></tr>`
-        )
-        .join("")}
-    </tbody>
-  `;
-  document.body.appendChild(table);
 }
 
 // Button click event
 document.getElementById("breakButton").addEventListener("click", () => {
   const code = document.getElementById("codeArea").value;
-  const { tokens, states } = lexer(code);
+  const tokens = lexer(code);
   displayTokens(tokens);
-  displayStates(states);
 });
